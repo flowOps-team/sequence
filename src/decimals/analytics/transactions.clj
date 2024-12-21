@@ -30,9 +30,14 @@
 
 (defn group-by-period [transactions period]
   (let [group-fn (case period
-                  "daily" #(str (t/local-date (:date %)))
-                  "weekly" #(str (t/beginning-of-week (t/local-date (:date %))))
-                  "monthly" #(str (t/beginning-of-month (t/local-date (:date %)))))]
+                  "daily" #(-> (t/local-date (:date %))
+                              str)
+                  "weekly" #(-> (t/local-date (:date %))
+                               (t/adjust (t/previous-or-same-day-of-week :monday))
+                               str)
+                  "monthly" #(-> (t/local-date (:date %))
+                                (t/adjust (t/first-day-of-month))
+                                str))]
     (->> transactions
          (group-by group-fn)
          (map (fn [[date txs]]
