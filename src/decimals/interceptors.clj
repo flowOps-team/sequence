@@ -11,6 +11,7 @@
             [decimals.crypto :as crypto]
             [decimals.transactions :as tx]
             [decimals.analytics :as analytics]
+            [decimals.analytics.transactions :as analytics.transactions]
             [decimals.balances :as b]))
 
 (def msg
