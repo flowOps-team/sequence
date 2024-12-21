@@ -1,4 +1,7 @@
 (ns decimals.transactions
+  "Namespace for handling financial transactions between accounts.
+   Provides functionality for creating, retrieving, and processing
+   transactions using DynamoDB as the storage backend."
   (:require [decimals.dynamodb :as db]
             [clojure.tools.logging :as log]
             [decimals.crypto :as crypto]
@@ -8,7 +11,12 @@
             [clojure.spec.alpha :as s]
             [java-time :as t]))
 
-(defn account->id [account party]
+(defn account->id
+  "Generates a unique identifier for an account based on public key and party.
+   Args:
+     account - Map containing account details
+     party - Keyword indicating the party type (:from or :to)"
+  [account party]
   (str (:public-key account) "#" ((keyword party) account)))
 
 (defn tx-get [id]
@@ -31,7 +39,11 @@
             :GSI1_SK ((keyword (:party tx)) tx)
             :LSI1_SK (:timestamp tx)}))
 
-(defn chain [context]
+(defn chain
+  "Processes a chain of transactions by creating balance and transaction records.
+   Takes a context map containing :from and :to transaction details and balances.
+   Returns updated context with :success or :error status."
+  [context]
   (let [from-balance (get-in context [:from :balance])
         from-tx (get-in context [:from :tx])
         to-balance (get-in context [:to :balance])
@@ -48,7 +60,13 @@
         (assoc context :success [from-tx to-tx])
         (assoc context :error :internal)))))
 
-(defn context->account [context party]
+(defn context->account
+  "Extracts account information from the transaction context for a given party.
+   Args:
+     context - Transaction context map
+     party - Keyword indicating which party's account to extract (:from or :to)
+   Returns account map if valid according to ::account spec, logs warning if invalid."
+  [context party]
   (let [tx (:tx context)
         cust (:customer context)
         party (select-keys tx [party])
@@ -59,7 +77,13 @@
       account
       (log/warn (s/explain ::account account)))))
 
-(defn party-funds [context party]
+(defn party-funds
+  "Retrieves the current balance for a party in the transaction.
+   Args:
+     context - Transaction context map
+     party - Keyword indicating which party's funds to check
+   Returns balance information if found and valid, nil otherwise."
+  [context party]
   (when-let [query (b/ctx->id context party)]
     (when-let [balance (b/balance query)]
       (if (s/valid? ::b/balance-tx balance)
@@ -68,7 +92,15 @@
           balance)
         (log/warn "invalid balance in database: " balance (s/explain-data ::b/balance-tx balance))))))
 
-(defn hash-txs [context]
+(defn hash-txs
+  "Creates hashed transaction records for both parties in a transaction.
+   Takes a context map and generates transaction documents with:
+   - Unique IDs based on MD5 hashes
+   - Updated balances
+   - Timestamps
+   - Transaction types (debit/credit)
+   Returns updated context with transaction details or nil if invalid."
+  [context]
   (let [to-account (context->account context :to)
         from-account (context->account context :from)]
        (when-let [to (cond ;FIXME: call the each function only once (as-> ?)
@@ -99,9 +131,56 @@
                (assoc-in [:to :tx] to-tx)
                (assoc-in [:from :tx] from-tx))))))
 
-(defn list-transactions [query]
+(defn list-transactions
+  "Retrieves a list of transactions matching the provided query.
+   Args:
+     query - Map containing query parameters for filtering transactions
+   Returns sequence of transaction records or nil if none found."
+  [query]
   (when-let [transactions (db/list-transactions query)]
     (let []
       (log/debug transactions))
       transactions
     ))
+
+(ns decimals.analytics.transactions
+  (:require [decimals.dynamodb :as db]
+            [clojure.tools.logging :as log]
+            [java-time :as t]))
+
+(defn calculate-stats [transactions]
+  (let [total-count (count transactions)
+        total-volume (reduce + (map :amount transactions))
+        avg-size (if (pos? total-count)
+                  (/ total-volume total-count)
+                  0)
+        success-count (count (filter #(= (:status %) "success") transactions))
+        success-rate (if (pos? total-count)
+                      (* 100 (/ success-count total-count))
+                      0)]
+    {:totalTransactions total-count
+     :transactionVolume total-volume
+     :averageTransactionSize avg-size
+     :successRate success-rate}))
+
+(defn calculate-trends [current-stats previous-stats]
+  {:totalTransactions (:totalTransactions current-stats)
+   :percentageChange (if (pos? (:totalTransactions previous-stats))
+                      (* 100 (/ (- (:totalTransactions current-stats)
+                                  (:totalTransactions previous-stats))
+                               (:totalTransactions previous-stats)))
+                      0)
+   :volumeChange (- (:transactionVolume current-stats)
+                   (:transactionVolume previous-stats))})
+
+(defn group-by-period [transactions period]
+  (let [group-fn (case period
+                  "daily" #(t/as-date (t/local-date (:date %)))
+                  "weekly" #(t/as-date (t/beginning-of-week (t/local-date (:date %))))
+                  "monthly" #(t/as-date (t/beginning-of-month (t/local-date (:date %)))))]
+    (->> transactions
+         (group-by group-fn)
+         (map (fn [[date txs]]
+                {:date (str date)
+                 :count (count txs)
+                 :volume (reduce + (map :amount txs))})))))

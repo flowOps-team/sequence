@@ -173,12 +173,67 @@
        (assoc-in context [:from :balance] from)
        context))})
 
+(def date-range-params
+  {:name :date-range-params
+   :enter
+   (fn [context]
+     (let [params (get-in context [:request :query-params])
+           start-date (get params :startDate)
+           end-date (get params :endDate)]
+       (assoc context :date-range {:start-date start-date
+                                  :end-date end-date})))})
+
+(def period-param
+  {:name :period-param
+   :enter
+   (fn [context]
+     (if-let [period (get-in context [:request :query-params :period])]
+       (if (contains? #{"daily" "weekly" "monthly"} period)
+         (assoc context :period period)
+         (respond context (badrequest {:error "Invalid period parameter"})))
+       (respond context (badrequest {:error "Missing period parameter"}))))})
+
+(def get-transaction-stats
+  {:name :get-transaction-stats
+   :enter
+   (fn [context]
+     (if-let [transactions (tx/list-transactions
+                           (merge (:account context)
+                                  (:date-range context)))]
+       (let [stats (analytics.transactions/calculate-stats transactions)
+             previous-period-txs (tx/list-transactions
+                                (merge (:account context)
+                                       {:previous-period true}))
+             trends (analytics.transactions/calculate-trends
+                    stats
+                    (analytics.transactions/calculate-stats previous-period-txs))]
+         (respond context (ok (assoc stats :trends trends))))
+       (respond context (not-found {:error "No transactions found"}))))})
+
+(def get-transaction-trends
+  {:name :get-transaction-trends
+   :enter
+   (fn [context]
+     (if-let [transactions (tx/list-transactions
+                           (merge (:account context)
+                                  (:date-range context)))]
+       (let [trend-data (analytics.transactions/group-by-period
+                        transactions
+                        (:period context))]
+         (respond context (ok {:data trend-data})))
+       (respond context (not-found {:error "No transactions found"}))))})
+
 (def routes
   (route/expand-routes
    #{["/v1/transactions"            :post
       [http/json-body auth parse-tx spec-tx from-balance genesis-balance check-balance hash-txs chain-txs]
-      ;auth
       :route-name :transactions-post]
+     ["/v1/transactions/stats"      :get
+      [http/json-body auth account-queryparam date-range-params get-transaction-stats]
+      :route-name :transactions-stats]
+     ["/v1/transactions/trends"     :get
+      [http/json-body auth account-queryparam period-param date-range-params get-transaction-trends]
+      :route-name :transactions-trends]
      ["/v1/transactions/:transaction-id"            :get
       [http/json-body auth transaction-queryparam]
       :route-name :transactions-get]
