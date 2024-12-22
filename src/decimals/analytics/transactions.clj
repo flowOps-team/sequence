@@ -33,10 +33,10 @@
                   "daily" #(-> (t/local-date (:date %))
                               str)
                   "weekly" #(-> (t/local-date (:date %))
-                               (t/adjust (t/previous-or-same-day-of-week :monday))
+                               (.with (t/day-of-week 1))
                                str)
                   "monthly" #(-> (t/local-date (:date %))
-                                (t/adjust (t/first-day-of-month))
+                                (.with-day-of-month 1)
                                 str))]
     (->> transactions
          (group-by group-fn)
