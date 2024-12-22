@@ -111,13 +111,19 @@
   {:name :account-queryparam
    :enter
    (fn [context]
-     (if-let [acc-id (get-in context [:request :query-params :account])]
-       (let [id (b/ctx->id context)]
-         (log/debug "Querying account: " id)
-         (assoc context :account id))
+     (if-let [accounts (get-in context [:request :query-params :account])]
+       (let [account-list (-> accounts
+                             (clojure.string/split #",")
+                             distinct)
+             _ (when (> (count account-list) 100000)
+                 (respond context (badrequest {:error "Maximum 100,000 accounts allowed"})))
+             ids (map #(b/ctx->id (assoc-in context [:request :query-params :account] %))
+                     account-list)]
+         (log/debug "Querying accounts:" ids)
+         (assoc context :accounts ids))
        (let [pk (get-in context [:customer :public-key])]
-         (log/debug "Querying public-key " pk)
-         (assoc-in context [:account :public-key] pk))))})
+         (log/debug "Querying public-key" pk)
+         (assoc context :accounts [{:public-key pk}]))))})
 
 (def transaction-queryparam
   {:name :transaction-queryparam
@@ -198,41 +204,37 @@
   {:name :get-transaction-stats
    :enter
    (fn [context]
-     (if-let [transactions (tx/list-transactions
-                           (merge (:account context)
-                                  (:date-range context)))]
-       (let [stats (analytics.transactions/calculate-stats transactions)
-             previous-period-txs (tx/list-transactions
-                                (merge (:account context)
-                                       {:previous-period true}))
-             trends (analytics.transactions/calculate-trends
-                    stats
-                    (analytics.transactions/calculate-stats previous-period-txs))]
-         (respond context (ok (assoc stats :trends trends))))
-       (respond context (not-found {:error "No transactions found"}))))})
+     (if-let [transactions (tx/list-transactions-for-accounts
+                           (:accounts context)
+                           (:date-range context))]
+       (let [stats (analytics.transactions/calculate-stats transactions)]
+         (respond context (ok stats)))
+       (respond context (ok {:totalTransactions 0
+                           :transactionVolume 0
+                           :averageTransactionSize 0}))))})
 
 (def get-transaction-trends
   {:name :get-transaction-trends
    :enter
    (fn [context]
-     (if-let [transactions (tx/list-transactions
-                           (merge (:account context)
-                                  (:date-range context)))]
+     (if-let [transactions (tx/list-transactions-for-accounts
+                           (:accounts context)
+                           (:date-range context))]
        (let [trend-data (analytics.transactions/group-by-period
                         transactions
                         (:period context))]
          (respond context (ok {:data trend-data})))
-       (respond context (not-found {:error "No transactions found"}))))})
+       (respond context (ok {:data []}))))})
 
 (def routes
   (route/expand-routes
    #{["/v1/transactions"            :post
       [http/json-body auth parse-tx spec-tx from-balance genesis-balance check-balance hash-txs chain-txs]
       :route-name :transactions-post]
-     ["/v1/transactions/stats"      :get
+     ["/v1/stats"      :get
       [http/json-body auth account-queryparam date-range-params get-transaction-stats]
       :route-name :transactions-stats]
-     ["/v1/transactions/trends"     :get
+     ["/v1/trends"     :get
       [http/json-body auth account-queryparam period-param date-range-params get-transaction-trends]
       :route-name :transactions-trends]
      ["/v1/transactions/:transaction-id"            :get

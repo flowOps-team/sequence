@@ -142,3 +142,18 @@
       (log/debug transactions))
       transactions
     ))
+
+(defn list-transactions-for-accounts
+  "Retrieves transactions for multiple accounts and merges results.
+   Args:
+     accounts - Sequence of account maps
+     query - Additional query parameters
+   Returns merged sequence of transaction records"
+  [accounts query]
+  (->> accounts
+       (pmap #(list-transactions (merge query {:public-key (:public-key %)
+                                             :account (:account %)})))
+       (filter identity)
+       (apply concat)
+       (sort-by :date #(compare %2 %1))
+       (take 1000)))

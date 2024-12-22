@@ -3,20 +3,25 @@
             [clojure.tools.logging :as log]
             [java-time :as t]))
 
-(defn calculate-stats [transactions]
+(defn calculate-stats
+  "Calculates statistical metrics for a collection of transactions.
+   
+   Args:
+     transactions - Collection of transaction maps, each containing :amount key
+   
+   Returns a map containing:
+     :totalTransactions - Total number of transactions
+     :transactionVolume - Sum of all transaction amounts
+     :averageTransactionSize - Average amount per transaction"
+  [transactions]
   (let [total-count (count transactions)
         total-volume (reduce + (map :amount transactions))
         avg-size (if (pos? total-count)
                   (/ total-volume total-count)
-                  0)
-        success-count (count (filter #(= (:status %) "success") transactions))
-        success-rate (if (pos? total-count)
-                      (* 100 (/ success-count total-count))
-                      0)]
+                  0)]
     {:totalTransactions total-count
      :transactionVolume total-volume
-     :averageTransactionSize avg-size
-     :successRate success-rate}))
+     :averageTransactionSize avg-size}))
 
 (defn calculate-trends [current-stats previous-stats]
   {:totalTransactions (:totalTransactions current-stats)
@@ -30,14 +35,15 @@
 
 (defn group-by-period [transactions period]
   (let [group-fn (case period
-                  "daily" #(-> (t/local-date (:date %))
+                  "daily" #(-> (t/instant (:date %))
+                              (t/local-date-time (t/zone-id "UTC"))
+                              t/local-date
                               str)
-                  "weekly" #(-> (t/local-date (:date %))
+                  "weekly" #(-> (t/instant (:date %))
+                               (t/local-date-time (t/zone-id "UTC"))
+                               t/local-date
                                (.with (t/day-of-week 1))
-                               str)
-                  "monthly" #(-> (t/local-date (:date %))
-                                (.with-day-of-month 1)
-                                str))]
+                               str))]
     (->> transactions
          (group-by group-fn)
          (map (fn [[date txs]]
