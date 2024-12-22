@@ -112,18 +112,30 @@
    :enter
    (fn [context]
      (if-let [accounts (get-in context [:request :query-params :account])]
-       (let [account-list (-> accounts
-                             (clojure.string/split #",")
-                             distinct)
-             _ (when (> (count account-list) 100000)
-                 (respond context (badrequest {:error "Maximum 100,000 accounts allowed"})))
-             ids (map #(b/ctx->id (assoc-in context [:request :query-params :account] %))
-                     account-list)]
-         (log/debug "Querying accounts:" ids)
-         (assoc context :accounts ids))
+       (let [route-name (get-in context [:route :route-name])]
+         (case route-name
+           ;; Multiple accounts for stats and trends
+           (:transactions-stats :transactions-trends)
+           (let [account-list (-> accounts
+                                 (clojure.string/split #",")
+                                 distinct)
+                 _ (when (> (count account-list) 100000)
+                     (respond context (badrequest {:error "Maximum 100,000 accounts allowed"})))
+                 ids (map #(b/ctx->id (assoc-in context [:request :query-params :account] %))
+                         account-list)]
+             (log/debug "Querying multiple accounts:" ids)
+             (assoc context :accounts ids))
+           
+           ;; Single account for other routes
+           (let [id (b/ctx->id (assoc-in context [:request :query-params :account] accounts))]
+             (log/debug "Querying single account:" id)
+             (assoc context :account id))))
+       ;; Default to public key when no account specified
        (let [pk (get-in context [:customer :public-key])]
          (log/debug "Querying public-key" pk)
-         (assoc context :accounts [{:public-key pk}]))))})
+         (if (#{:transactions-stats :transactions-trends} (get-in context [:route :route-name]))
+           (assoc context :accounts [{:public-key pk}])
+           (assoc context :account {:public-key pk})))))})
 
 (def transaction-queryparam
   {:name :transaction-queryparam
@@ -148,9 +160,7 @@
   {:name :list-transactions
    :enter
    (fn [context]
-     (if-let [transactions (tx/list-transactions
-                            (conj (:account context)
-                                  (select-keys context [:starting-after])))]
+     (if-let [transactions (tx/list-transactions (:account context))]
        (respond context (ok (map #(st/select-spec ::tx/pub-transaction %) transactions)))
        (respond context (not-found {:error "Account not found."}))))})
 
