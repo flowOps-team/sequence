@@ -9,7 +9,7 @@
   },
   "DataModel": [
     {
-      "TableName": "sequence",
+      "TableName": "decimals",
       "KeyAttributes": {
         "PartitionKey": {
           "AttributeName": "PK",
