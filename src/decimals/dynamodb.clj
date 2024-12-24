@@ -47,25 +47,18 @@
   (let [base-config {:index :LSI1
                      :order :desc
                      :limit (or (:limit query) 1000)}
-        date-filter (when (or (:start-date query) (:end-date query))
-                     {:filter-expr (cond
-                                   (and (:start-date query) (:end-date query))
-                                   "LSI1_SK BETWEEN :start AND :end"
-                                   
-                                   (:start-date query)
-                                   "LSI1_SK >= :start"
-                                   
-                                   (:end-date query)
-                                   "LSI1_SK <= :end")
-                      :expr-attr-vals (cond-> {}
-                                      (:start-date query) 
-                                      (assoc ":start" (:start-date query))
-                                      
-                                      (:end-date query)
-                                      (assoc ":end" (:end-date query)))})]
-    (->> (merge base-config date-filter)
+        key-conds (cond-> {:PK [:eq (query->pk query)]}
+                   (and (:start-date query) (:end-date query))
+                   (assoc :LSI1_SK [:between (:start-date query) (:end-date query)])
+                   
+                   (:start-date query)
+                   (assoc :LSI1_SK [:ge (:start-date query)])
+                   
+                   (:end-date query)
+                   (assoc :LSI1_SK [:le (:end-date query)]))]
+    (->> base-config
          (pagination query)
-         (far/query client-opts :decimals {:PK [:eq (query->pk query)]}))))
+         (far/query client-opts :decimals key-conds))))
 
 (defn list-with-genesis [query]
   (let [pk (query->pk query)]

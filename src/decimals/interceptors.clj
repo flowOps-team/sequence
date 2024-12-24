@@ -259,6 +259,19 @@
            (respond context (not-found {:error "Transaction not found"}))))
        (respond context (badrequest {:error "Missing transaction ID"}))))})
 
+(def get-transaction-aggregation
+  {:name :get-transaction-aggregation
+   :enter
+   (fn [context]
+     (if-let [transactions (tx/list-transactions-for-accounts
+                           (:accounts context)
+                           (:date-range context))]
+       (let [aggregation-data (analytics.transactions/aggregate-by-period
+                              transactions
+                              (:period context))]
+         (respond context (ok {:data aggregation-data})))
+       (respond context (ok {:data []}))))})
+
 (def routes
   (route/expand-routes
    #{["/v1/transactions"            :post
@@ -278,4 +291,7 @@
       :route-name :transactions-list]
      ["/v1/balances"            :get
       [http/json-body auth account-queryparam list-balances]
-      :route-name :balances-get]}))
+      :route-name :balances-get]
+     ["/v1/aggregation"     :get
+      [http/json-body auth account-queryparam period-param date-range-params get-transaction-aggregation]
+      :route-name :transactions-aggregation]}))
