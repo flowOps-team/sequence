@@ -12,7 +12,9 @@
             [decimals.transactions :as tx]
             [decimals.analytics :as analytics]
             [decimals.analytics.transactions :as analytics.transactions]
-            [decimals.balances :as b]))
+            [decimals.balances :as b]
+            [decimals.dynamodb :as db]
+            [java-time :as t]))
 
 (def msg
   {:generic { :message "Sorry, we had a problem. Please, try again or reach out."}
@@ -114,8 +116,8 @@
      (if-let [accounts (get-in context [:request :query-params :account])]
        (let [route-name (get-in context [:route :route-name])]
          (case route-name
-           ;; Multiple accounts for stats and trends
-           (:transactions-stats :transactions-trends)
+           ;; Multiple accounts for stats, trends, and aggregation
+           (:transactions-stats :transactions-trends :transactions-aggregation)
            (let [account-list (-> accounts
                                  (clojure.string/split #",")
                                  distinct)
@@ -133,7 +135,8 @@
        ;; Default to public key when no account specified
        (let [pk (get-in context [:customer :public-key])]
          (log/debug "Querying public-key" pk)
-         (if (#{:transactions-stats :transactions-trends} (get-in context [:route :route-name]))
+         (if (#{:transactions-stats :transactions-trends :transactions-aggregation} 
+              (get-in context [:route :route-name]))
            (assoc context :accounts [{:public-key pk}])
            (assoc context :account {:public-key pk})))))})
 
@@ -225,10 +228,15 @@
   {:name :get-transaction-stats
    :enter
    (fn [context]
-     (if-let [transactions (tx/list-transactions-for-accounts
-                           (:accounts context)
-                           (:date-range context))]
-       (let [stats (analytics.transactions/calculate-stats transactions)]
+     (if-let [aggregation (db/aggregate-transactions 
+                          (:accounts context)
+                          (:period context))]
+       (let [stats {:totalTransactions (:total aggregation)
+                   :transactionVolume (:volume aggregation)
+                   :averageTransactionSize (if (pos? (:total aggregation))
+                                           (/ (:volume aggregation) 
+                                              (:total aggregation))
+                                           0)}]
          (respond context (ok stats)))
        (respond context (ok {:totalTransactions 0
                            :transactionVolume 0
@@ -238,15 +246,28 @@
   {:name :get-transaction-trends
    :enter
    (fn [context]
-     (if-let [transactions (tx/list-transactions-for-accounts
-                           (:accounts context)
-                           (:date-range context))]
+     (if-let [aggregation (db/aggregate-transactions
+                          (:accounts context) 
+                          (:period context))]
        (let [trend-data (analytics.transactions/group-by-period
-                        transactions
+                        (:transactions aggregation)
                         (:period context))]
          (respond context (ok {:data trend-data})))
        (respond context (ok {:data []}))))})
 
+(def get-transaction-flow
+  {:name :get-transaction-flow
+   :enter
+   (fn [context]
+     (if-let [aggregation (db/aggregate-transactions
+                          (:accounts context) 
+                          (:period context))]
+       (let [flow-data (analytics.transactions/group-by-period-flow
+                        (:transactions aggregation)
+                        (:period context))]
+         (respond context (ok {:data flow-data})))
+       (respond context (ok {:data []}))))})
+      
 (def transaction-id-param
   {:name :transaction-id-param
    :enter
@@ -258,19 +279,6 @@
            (respond context (ok (st/select-spec ::tx/pub-transaction transaction)))
            (respond context (not-found {:error "Transaction not found"}))))
        (respond context (badrequest {:error "Missing transaction ID"}))))})
-
-(def get-transaction-aggregation
-  {:name :get-transaction-aggregation
-   :enter
-   (fn [context]
-     (if-let [transactions (tx/list-transactions-for-accounts
-                           (:accounts context)
-                           (:date-range context))]
-       (let [aggregation-data (analytics.transactions/aggregate-by-period
-                              transactions
-                              (:period context))]
-         (respond context (ok {:data aggregation-data})))
-       (respond context (ok {:data []}))))})
 
 (def routes
   (route/expand-routes
@@ -293,5 +301,5 @@
       [http/json-body auth account-queryparam list-balances]
       :route-name :balances-get]
      ["/v1/aggregation"     :get
-      [http/json-body auth account-queryparam period-param date-range-params get-transaction-aggregation]
+      [http/json-body auth account-queryparam period-param date-range-params get-transaction-flow]
       :route-name :transactions-aggregation]}))

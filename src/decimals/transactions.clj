@@ -156,4 +156,4 @@
        (filter identity)
        (apply concat)
        (sort-by :date #(compare %2 %1))
-       (take 1000)))
+       (take 10000)))

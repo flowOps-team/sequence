@@ -114,3 +114,24 @@
       (catch Exception e
         (log/error "Error calculating totals:" e)
         {:debit 0 :credit 0}))))
+
+(defn aggregate-transactions
+  "Performs server-side aggregation of transactions using DynamoDB"
+  [accounts period]
+  (try
+    (let [results (for [account accounts
+                       :let [pk (query->pk account)]
+                       :when pk]
+                   (far/query client-opts 
+                            :decimals
+                            {:PK [:eq pk]}
+                            {:index :LSI1
+                             :select ["amount" "type" "date"]
+                             :consistent true}))
+          all-transactions (apply concat results)]
+      {:total (count all-transactions)
+       :volume (reduce + (map :amount all-transactions))
+       :transactions all-transactions})
+    (catch Exception e
+      (log/error "Error aggregating transactions:" e)
+      nil)))

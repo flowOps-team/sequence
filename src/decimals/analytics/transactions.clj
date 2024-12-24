@@ -34,38 +34,59 @@
       t/local-date
       (.getMonthValue)))
 
+(defn- get-year [date]
+  (-> date
+      t/instant
+      (t/local-date-time (t/zone-id "UTC"))
+      t/local-date
+      (.getYear)))
+
 (defn group-by-period
   "Groups transaction volumes by weekly or monthly periods.
    period can be 'weekly' or 'monthly'"
   [transactions period]
-  (let [group-fn (case period
-                  "weekly" #(get-week-number (:date %))
-                  "monthly" #(get-month-number (:date %)))]
-    (->> transactions
-         (group-by group-fn)
-         (map (fn [[period txs]]
-                {:period period
-                 :volume (reduce + (map :amount txs))})))))
+  (if (empty? transactions)
+    []
+    (let [group-fn (case period
+                    "weekly" #(get-week-number (:date %))
+                    "monthly" #(get-month-number (:date %)))
+          grouped (->> transactions
+                      (group-by group-fn))]
+      (->> (case period
+             "weekly" (range 1 54)
+             "monthly" (range 1 13))
+           (map (fn [period-num]
+                 (let [txs (get grouped period-num [])]
+                   {:period period-num
+                    :volume (->> txs
+                               (map :amount)
+                               (reduce + 0))})))))))
 
-(defn aggregate-by-period
-  "Aggregates credits and debits by weekly or monthly periods"
+(defn group-by-period-flow
+  "Groups transaction flow by weekly or monthly periods.
+   period can be 'weekly' or 'monthly'"
   [transactions period]
-  (let [group-fn (case period
-                  "weekly" #(get-week-number (:date %))
-                  "monthly" #(get-month-number (:date %)))]
-    (->> transactions
-         (group-by group-fn)
-         (map (fn [[period txs]]
-                {:period period
-                 :credits (->> txs
-                             (filter #(= (:type %) "credit"))
-                             (map :amount)
-                             (reduce + 0))
-                 :debits (->> txs
-                            (filter #(= (:type %) "debit"))
-                            (map :amount)
-                            (reduce + 0))})))))
-
+  (if (empty? transactions)
+    []
+    (let [group-fn (case period
+                    "weekly" #(get-week-number (:date %))
+                    "monthly" #(get-month-number (:date %)))
+          grouped (->> transactions
+                      (group-by group-fn))]
+      (->> (case period
+             "weekly" (range 1 54)
+             "monthly" (range 1 13))
+           (map (fn [period-num]
+                 (let [txs (get grouped period-num [])]
+                   {:period period-num
+                    :inflow (->> txs
+                               (filter #(= (:type %) "credit"))
+                               (map :amount)
+                               (reduce + 0))
+                    :outflow (->> txs
+                               (filter #(= (:type %) "debit"))
+                               (map :amount)
+                               (reduce + 0))})))))))
 (defn calculate-totals
   "Calculates total debits and credits for an account using DynamoDB aggregation.
    
