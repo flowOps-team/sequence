@@ -40,3 +40,11 @@
                                        ::tx/date]))
 
 (s/def ::b/pub-balance (s/keys :req-un [::tx/balance ::tx/currency ::b/account]))
+
+(s/def ::tx/limit (s/and integer? #(and (>= % 1) (<= % 1000))))
+(s/def ::tx/start-date (s/nilable string?))
+(s/def ::tx/end-date (s/nilable string?))
+
+(s/def ::tx/query-params (s/keys :opt-un [::tx/limit 
+                                         ::tx/start-date 
+                                         ::tx/end-date]))

@@ -137,16 +137,21 @@
            (assoc context :accounts [{:public-key pk}])
            (assoc context :account {:public-key pk})))))})
 
-(def transaction-queryparam
-  {:name :transaction-queryparam
+(def transaction-query-params
+  {:name :transaction-query-params
    :enter
    (fn [context]
-     (if-let [tx-id (select-keys context [:request :path-params :transaction-id])]
-       (let [id (conj (select-keys context [:customer :public-key])
-                      tx-id)]
-         (log/debug "Querying transaction: " id)
-         (assoc context :tx-id id))
-       (respond context (badrequest {:error "Missing transaction path parameter."}))))})
+     (let [params (get-in context [:request :query-params])
+           limit (when-let [l (:limit params)]
+                  (try (Integer/parseInt l)
+                       (catch Exception _ nil)))
+           query-params (cond-> {}
+                         limit (assoc :limit limit)
+                         (:start_date params) (assoc :start-date (:start_date params))
+                         (:end_date params) (assoc :end-date (:end_date params)))]
+       (if (and limit (not (s/valid? ::tx/limit limit)))
+         (respond context (badrequest {:error "Limit must be between 1 and 1000"}))
+         (assoc context :query-params query-params))))})
 
 (def pagination
   {:name :pagination
@@ -160,9 +165,14 @@
   {:name :list-transactions
    :enter
    (fn [context]
-     (if-let [transactions (tx/list-transactions (:account context))]
-       (respond context (ok (map #(st/select-spec ::tx/pub-transaction %) transactions)))
-       (respond context (not-found {:error "Account not found."}))))})
+     (let [query (:account context)
+           transactions (tx/list-transactions query)
+           totals (analytics.transactions/calculate-totals query)]
+       (if transactions
+         (respond context (ok {:transactions (map #(st/select-spec ::tx/pub-transaction %) transactions)
+                             :total_debit (:total_debit totals)
+                             :total_credit (:total_credit totals)}))
+         (respond context (not-found {:error "Account not found."})))))})
 
 (def list-balances
   {:name :list-balances
@@ -236,6 +246,18 @@
          (respond context (ok {:data trend-data})))
        (respond context (ok {:data []}))))})
 
+(def transaction-id-param
+  {:name :transaction-id-param
+   :enter
+   (fn [context]
+     (if-let [tx-id (get-in context [:request :path-params :transaction-id])]
+       (let [id (merge {:transaction-id tx-id}
+                      (select-keys (:customer context) [:public-key]))]
+         (if-let [transaction (tx/tx-get id)]
+           (respond context (ok (st/select-spec ::tx/pub-transaction transaction)))
+           (respond context (not-found {:error "Transaction not found"}))))
+       (respond context (badrequest {:error "Missing transaction ID"}))))})
+
 (def routes
   (route/expand-routes
    #{["/v1/transactions"            :post
@@ -248,10 +270,10 @@
       [http/json-body auth account-queryparam period-param date-range-params get-transaction-trends]
       :route-name :transactions-trends]
      ["/v1/transactions/:transaction-id"            :get
-      [http/json-body auth transaction-queryparam]
+      [http/json-body auth transaction-id-param]
       :route-name :transactions-get]
      ["/v1/transactions"            :get
-      [http/json-body auth account-queryparam pagination list-transactions]
+      [http/json-body auth account-queryparam transaction-query-params pagination list-transactions]
       :route-name :transactions-list]
      ["/v1/balances"            :get
       [http/json-body auth account-queryparam list-balances]

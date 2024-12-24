@@ -50,3 +50,18 @@
                 {:date date
                  :count (count txs)
                  :volume (reduce + (map :amount txs))})))))
+
+(defn calculate-totals
+  "Calculates total debits and credits for an account using DynamoDB aggregation.
+   
+   Args:
+     query - Query parameters including account information
+   
+   Returns:
+     Map containing :total_debit, :total_credit, and :balance"
+  [query]
+  (let [totals (db/aggregate-account-totals query)
+        balance (- (:credit totals) (:debit totals))]
+    {:total_debit (:debit totals)
+     :total_credit (:credit totals)
+     :balance balance}))
