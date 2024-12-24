@@ -171,7 +171,8 @@
        (if transactions
          (respond context (ok {:transactions (map #(st/select-spec ::tx/pub-transaction %) transactions)
                              :total_debit (:total_debit totals)
-                             :total_credit (:total_credit totals)}))
+                             :total_credit (:total_credit totals)
+                             :balance (:balance totals)}))
          (respond context (not-found {:error "Account not found."})))))})
 
 (def list-balances
