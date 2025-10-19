@@ -9,7 +9,9 @@
 (s/def ::tx/to (s/and string? #(> (count %) 1)))
 (s/def ::tx/amount (s/and integer? #(>= % 0)))
 (s/def ::tx/balance (s/and integer? #(>= % 0)))
-(s/def ::tx/currency (s/and string? #(> (count %) 1)))
+(s/def ::tx/currency (s/and string?
+                            #(> (count %) 1)
+                            #(= % (clojure.string/upper-case %))))
 (s/def ::tx/public-key (s/and string? #(> (count %) 1)))
 
 (s/def ::tx/account (s/keys :req-un [(or ::tx/from ::tx/to)]))

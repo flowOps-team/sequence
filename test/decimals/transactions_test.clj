@@ -12,19 +12,19 @@
 (deftest hash-txs-test
   "assert that values add up for a transaction"
   (let [customer {:pulic-key "123"}
-        tx {:from "Alice", :to "Bob", :amount 10, :currency "usd"} 
+        tx {:from "Alice", :to "Bob", :amount 10, :currency "USD"}
         from-balance {:from "Genesis",
                       :to "Alice",
                       :amount 100,
                       :balance 100,
-                      :currency "usd",
+                      :currency "USD",
                       :public-key "123"}
         context  {:tx tx
                   :from { :balance from-balance}
                   :customer customer}]
 
     ; new destination balance
-    (mfn/providing [(b/balance {:public-key nil, :currency "usd", :account "Bob"}) nil]
+    (mfn/providing [(b/balance {:public-key nil, :currency "USD", :account "Bob"}) nil]
                    (if-let [result (tx/hash-txs context)]
                      (let [tx-amount (get-in result [:tx :amount])
                            from-balance (get-in result [:from :balance :balance])
@@ -36,12 +36,12 @@
                      (is true false)))
 
     ; existing destination balance
-    (mfn/providing [(b/balance {:public-key nil, :currency "usd", :account "Bob"})
+    (mfn/providing [(b/balance {:public-key nil, :currency "USD", :account "Bob"})
                     {:from "Matt",
                      :to "Bob",
                      :amount 100,
                      :balance 100,
-                     :currency "usd",
+                     :currency "USD",
                      :date "123"
                      :public-key "123"}]
                    (if-let [result (tx/hash-txs context)]

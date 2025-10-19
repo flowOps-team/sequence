@@ -101,12 +101,17 @@
     (-> str json/read-str clojure.walk/keywordize-keys)
     (catch Exception e)))
 
+(defn normalize-currency [tx]
+  (if-let [currency (:currency tx)]
+    (assoc tx :currency (clojure.string/upper-case currency))
+    tx))
+
 (def parse-tx
   {:name :parse-tx
    :enter
    (fn [context]
      (if-let [tx (str->map (slurp (:body (:request context))))]
-       (assoc context :tx tx)
+       (assoc context :tx (normalize-currency tx))
        (respond context (badrequest {:error "Malformed JSON."}))))})
 
 (def account-queryparam
