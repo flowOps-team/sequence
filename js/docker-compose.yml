@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # MongoDB database
+  mongodb:
+    image: mongo:7.0
+    container_name: sequence-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: sequence_ledger
+    volumes:
+      - mongodb_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - sequence-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Sequence Ledger API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sequence-api
+    ports:
+      - "8910:8910"
+    environment:
+      NODE_ENV: development
+      PORT: 8910
+      MONGODB_URI: mongodb://mongodb:27017/sequence_ledger
+      # Development API key (SHA256 hash of "123")
+      KEYS: '[{"name":"Development","email":"dev@example.com","publicKey":"dev","secretKeyHash":"a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"}]'
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - sequence-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  sequence-network:
+    driver: bridge
